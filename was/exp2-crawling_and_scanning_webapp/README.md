@@ -1,242 +1,265 @@
-Experiment 2 — Crawling & Scanning a Web App
+# Experiment 2 — Crawling & Scanning a Web App (Kali + Mutillidae + Burp)
 
-Platform: Kali Linux + Mutillidae + Burp Suite
-Purpose: discover the web app surface (pages/parameters) and scan/inspect for common vulnerabilities using Burp (Pro automated scanning if available; otherwise manual verification using Proxy / Repeater / Intruder).
-Scope reminder: Only test systems you are authorized to test (Mutillidae / lab VMs / teacher-provided hosts).
+_(Markdown file ready to save in your GitHub repo — copy this whole file to `EXPT-02-Crawling-and-Scanning.md`)_
 
-Contents
+---
 
-Prerequisites
+> **Purpose (one-liner):** learn how to crawl (discover pages) and scan (find web vulnerabilities) on a deliberately vulnerable target using Kali + Mutillidae + Burp Suite — and how to produce exam-friendly evidence if Mutillidae isn’t usable.
+> **Important:** Always run these tests **only** on lab targets you are authorized to test (Mutillidae / DVWA / Juice Shop). Burp’s automated scanner is available only in the Professional edition — the Community edition requires more manual testing. ([PortSwigger][1])
 
-Quick checklist (one-page)
+---
 
-Step-by-step procedure (start → crawl → scan → analyze)
+# Table of contents
 
-Manual verification tests to run (Community edition)
+1. Prerequisites (software + lab)
+2. Quick checklist (one-page)
+3. Full step-by-step — Mutillidae on Kali
+4. Burp setup & crawling (how to capture pages)
+5. Scanning (Burp Pro) and manual checks (Community)
+6. Fallback: If Mutillidae doesn't work — use DVWA (quick install)
+7. What to capture & sample evidence to show teacher
+8. Mitigations / how to fix issues found
+9. Short theory / notes you can read aloud in exam
+10. Appendix: useful commands & tips
 
-Fallback: If Mutillidae is not reachable — quick DVWA fallback (how to use)
+---
 
-What to capture & sample evidence files to show teacher
+# 1) Prerequisites (what must be ready on your Kali machine)
 
-Mitigations / remediation notes (what to say in report)
+- Kali Linux (updated).
+- Burp Suite (Community or Professional) installed. If you have Burp Pro, automated scanning is possible; Community edition does manual testing. ([PortSwigger][1])
+- Mutillidae (deliberately vulnerable webapp) installed and running on local web server, OR an alternative lab app (DVWA / Juice Shop) if Mutillidae fails. Mutillidae is an OWASP project and can be installed from its repo or preinstalled in many security distros. ([OWASP Foundation][2])
+- Browser (Firefox recommended) with proxy settings and ability to import Burp CA certificate.
+- Basic tools (apache2 / php / mysql) available if installing Mutillidae manually.
 
-Short explanation you can read aloud in the practical
+---
 
-Useful commands & quick tips
+# 2) Quick checklist (one-page before starting exam)
 
-Minimal lab report template (copy-paste)
+- [ ] Start Apache + MySQL on Kali: `sudo systemctl start apache2` and `sudo systemctl start mariadb` (or `mysql`).
+- [ ] Put Mutillidae into web root or ensure it’s running at `http://localhost/mutillidae/`.
+- [ ] Launch Burp → Proxy listener on `127.0.0.1:8080`.
+- [ ] Configure browser proxy to `127.0.0.1:8080` and import Burp CA cert.
+- [ ] Open Mutillidae home page in proxied browser → verify requests appear in Burp Proxy HTTP history.
+- [ ] Add target domain to Burp scope → start crawling / manual browsing.
+- [ ] Run a scan (if Pro) or select important endpoints and use Repeater/Intruder/Manual checks (Community).
+- [ ] Save Burp project + screenshots + short finding notes.
 
-1. Prerequisites
+---
 
-Kali Linux up-to-date and running.
+# 3) Full step-by-step — Mutillidae on Kali (install + run)
 
-Mutillidae already installed and reachable at http://localhost/mutillidae/ (or lab host).
+> Short note: there are multiple ways to get Mutillidae running (preinstalled images, XAMPP, copy to `/var/www/html`, Docker). The commands below are the _stable general approach_ used on Kali/Ubuntu. If you already have a prebuilt lab VM with Mutillidae, skip to “Start services.”
 
-Burp Suite installed (Community or Professional). If you have Burp Pro you can run automated scans. Community = manual workflow.
+### Option A — (recommended) clone Mutillidae into Apache webroot
 
-Firefox (or Burp embedded browser) and Burp CA certificate imported for HTTPS.
+```bash
+# 1. move to web root
+cd /var/www/html
 
-Apache / MySQL running on Kali (if your Mutillidae uses local services).
+# 2. clone the official repo (OWASP / webpwnized)
+sudo git clone https://github.com/webpwnized/mutillidae.git
 
-Basic terminal familiarity for running small commands and taking screenshots.
+# 3. set permissions
+sudo chown -R www-data:www-data mutillidae
+sudo chmod -R 755 mutillidae
 
-2. Quick checklist (one-page before starting the exam)
+# 4. start web services
+sudo systemctl start apache2
+sudo systemctl start mariadb   # or mysql
 
-Start Apache & MySQL: sudo systemctl start apache2 and sudo systemctl start mariadb (or mysql).
+# 5. open the setup page in browser:
+#    http://localhost/mutillidae/   (or http://127.0.0.1/mutillidae/)
+```
 
-Open http://localhost/mutillidae/ in browser — verify page loads.
+_(If Mutillidae needs DB setup, follow on-screen setup or check `/mutillidae/` docs).)_ ([GitHub][3])
 
-Launch Burp → Proxy listener 127.0.0.1:8080.
+### Option B — use XAMPP (if you prefer GUI or Windows-like flow)
 
-Configure browser proxy to 127.0.0.1:8080 and import Burp CA cert.
+1. Install XAMPP (if not present), extract mutillidae into XAMPP's `htdocs` then start Apache & MySQL via XAMPP control. (Common on tutorials). ([Packt][4])
 
-Browse Mutillidae while Burp Proxy captures requests → verify HTTP history populated.
+### Start / verify
 
-Add host to Burp scope (Target → Scope).
+- Visit `http://localhost/mutillidae/` in your browser. You should see Mutillidae splash page (with links, lab menu).
+- If you see DB connection errors, double-check MySQL (`sudo mysql_secure_installation`) and the Mutillidae setup page (there is often a `set-up-database.php` script). Common troubleshooting: missing PHP modules (`php-mbstring`, `php-xml`, `php-curl`) — install via apt if error. ([Stack Overflow][5])
 
-Crawl (Pro) or manually browse all pages (Community).
+---
 
-Run scan (Pro) or perform manual checks (Repeater/Intruder).
+# 4) Burp Suite — setup, crawling (spidering), and capturing evidence
 
-Save Burp project + screenshots + finding_summary.md.
+### 4.1 Configure Burp proxy & browser
 
-3. Step-by-step procedure (assumes Mutillidae is installed)
-   A. Start services & verify target
-   sudo systemctl start apache2
-   sudo systemctl start mariadb # if Mutillidae uses DB
+1. Open Burp → **Proxy → Options** → ensure a listener exists at `127.0.0.1:8080`.
+2. In the browser, set manual proxy to `127.0.0.1:8080` for HTTP/HTTPS, OR open Burp's embedded browser.
+3. Install Burp CA certificate in browser (Proxy → CA certificate → export/import) so HTTPS sites don't break.
 
-# verify
+### 4.2 Add target to scope
 
-curl -I http://localhost/mutillidae/ # should return HTTP 200 headers
+1. In Burp: **Target → Site map → Add to scope** (right-click the host or use Target → Scope).
+2. Scope ensures you’re testing only the lab host — good for exam clarity and ethical reasons.
 
-Open http://localhost/mutillidae/ in your browser (proxied) — you should see the Mutillidae homepage.
+### 4.3 Crawl / Spider (discover pages)
 
-B. Burp setup (Proxy + browser)
+- **If you have Burp Pro:** use the **Crawl** / **Scanner** features to automatically spider the host (Target → Crawl or in Site map right-click → Crawl). The Pro scanner will both crawl and actively scan for vulnerabilities. ([PortSwigger][1])
+- **If you have Burp Community:** the dedicated Spider may not be present; instead:
 
-Open Burp → Proxy → Options. Confirm an HTTP listener on 127.0.0.1:8080.
+  1. Use Burp’s **Proxy** + browse the entire app (click all links, follow menus) — each request will populate **Target → Site map** automatically.
+  2. Use Burp **Intruder** or manual lists only after you discover endpoints. (Manual crawling + Repeater is common in community edition.) ([Reddit][6])
 
-In Firefox: Preferences → Network Settings → Manual proxy 127.0.0.1 port 8080 (HTTP & HTTPS).
+### 4.4 What to watch in Burp while crawling
 
-In Burp: Proxy → CA Certificate → export and import certificate into Firefox (so HTTPS pages load).
+- **Site map:** shows discovered URLs and parameters.
+- **Proxy → HTTP history:** raw requests/responses captured.
+- **Target → Discovery results** (Pro): crawling summary.
 
-In Burp: Proxy → Intercept → Intercept Off (so browsing flows).
+---
 
-In Burp: Target → Scope → Add http://localhost/mutillidae (right-click host in Site map → Add to scope).
+# 5) Scanning & manual analysis (what to do once you have pages)
 
-C. Crawl / Discover the site
+### 5.1 If you have **Burp Professional** (automated scanning)
 
-Burp Pro (auto): Target → right-click host → Crawl & Audit (or use Spider/Crawler). Let it run until it finishes.
+1. Right-click a host or path in **Target → Site map** → **Scan** (or use “Crawl & audit”). Start scan. ([PortSwigger][1])
+2. Let it run (time varies). Export scanner results -> **Report** → save as HTML/PDF for submission.
+3. For each finding, click the item → read evidence and suggested remediation. Save screenshot of the finding pane.
 
-Burp Community (manual crawl): Use the browser to click every menu, link, form and follow the application flow (login pages, search, product pages, comment forms). Burp will populate Target → Site map automatically as you browse.
+### 5.2 If you have **Burp Community** (manual checks)
 
-Keep a note (or screenshot) of how many unique paths/pages were discovered (Target → Site map shows this).
+1. Use **Proxy history** to pick interesting endpoints (login, forms, search, upload).
+2. For each endpoint:
 
-D. Save initial evidence
+   - **Send to Repeater** → modify parameters and observe responses (useful for injection, directory traversal, XSS test strings).
+   - **Send to Intruder** (if permitted) → small password list or payload list (be careful with brute force).
 
-In Burp Proxy → HTTP history → right-click → Save selected items (save a few representative requests).
+3. Document each test: request payload, response status, length, and why it indicates an issue.
 
-Take screenshots:
+### 5.3 Other manual scans to run quickly (in Kali terminal)
 
-Mutillidae home page (browser with Burp visible)
+- Quick port scan (if teacher asks):
 
-Burp Site map (after crawling)
+```bash
+nmap -sV -T4 -oN nmap_site.txt <target-ip-or-host>
+```
 
-Example HTTP request in Proxy history
+- Simple curl header grab:
 
-E. Scanning & initial analysis
-If you have Burp Professional
+```bash
+curl -I http://localhost/mutillidae/
+```
 
-In Target → Site map, right-click host or a directory → Scan → pick default profile → Start.
+Include outputs in your evidence zip.
 
-Let scanner run until it finishes (time varies).
+---
 
-Export scan results: Scanner → Reports → save HTML/PDF.
+# 6) Fallback: If Mutillidae doesn’t work — use DVWA (quick install on Kali)
 
-For each finding, open it and Save screenshot showing evidence and suggested remediation.
+> DVWA is available as a Kali package and is a reliable fallback for web vulnerability labs. ([Kali Linux][7])
 
-If you have Burp Community (manual)
+### Quick DVWA install (Kali)
 
-Use Proxy history to find interesting endpoints (login, search, comment, upload).
+```bash
+# install (Kali package)
+sudo apt update
+sudo apt install dvwa
 
-For each endpoint:
+# start the helper (if package provides dvwa-start)
+dvwa-start      # launches a browser to DVWA interface (if available)
+# OR start apache & mysql:
+sudo systemctl start apache2
+sudo systemctl start mariadb
+# go to http://localhost/dvwa/setup.php and follow instructions
+```
 
-Right-click → Send to Repeater → craft test payloads and click Go to observe responses.
+- DVWA gives similar targets (XSS, SQLi, CSRF) and works fine with Burp.
 
-Right-click → Send to Intruder (for small, safe fuzzing lists; be conservative in exams).
+**Alternative:** OWASP Juice Shop (modern JS-based) — used when you want a richer UI, but it may require Node.js setup. If time is short, use DVWA.
 
-Look for anomalies: different response lengths/status codes, error messages, stack traces, sensitive data in responses.
+---
 
-4. Manual verification tests (high-value checks to run quickly)
+# 7) What to capture & example evidence to show teacher (save for exam report)
 
-Each test: show the original request, the modified request, response evidence, screenshot.
+Create a folder `evidence/` in your repo and include:
 
-Parameter fuzz / simple injection test (in Repeater)
+1. `screenshot_mutillidae_home.png` — Mutillidae home page opened in proxied browser (show Burp in background).
+2. `burp_sitemap.png` — Site map after crawling (highlight number of pages discovered).
+3. `burp_http_history.png` — an example request/response captured in Proxy (show a request with parameters).
+4. `burp_repeater_example.png` — Repeater request + response where you modified a parameter (short caption).
+5. `burp_scan_result.png` (if Pro) — one scanner finding screenshot with evidence & remediation. ([PortSwigger][1])
+6. `nmap_output.txt` — output of quick nmap scan (if you ran it).
+7. `commands.txt` — list of commands you ran (apache start, git clone, dvwa-start, nmap, curl).
+8. Short text file `finding_summary.md` with: target, date/time, quick findings (3 bullets), tools used.
 
-Inject <'script'>alert(1)</script> or 1' OR '1'='1 in parameters to test for XSS/SQLi. Observe the response.
+**How to take screenshots quickly on Kali**
 
-Directory traversal test
+- `gnome-screenshot -a` (select area) or use Print Screen and crop. Save with descriptive names.
+- Use Burp → right-click → Save item for raw HTTP requests (saves as file).
 
-Try ?page=../../../../etc/passwd (or URL-encode). Look for file contents.
+---
 
-Authentication check
+# 8) Mitigations — what to say to fix issues found (short, exam-ready)
 
-Capture login POST. Try simple password variations (small wordlist) via Intruder — stop after a few attempts to avoid lockouts.
+When you present findings, recommend concise, prioritized fixes:
 
-File upload / content type check
+- **Input validation & output encoding:** sanitize all user inputs and encode outputs to prevent XSS/SQLi.
+- **Use parameterized queries / prepared statements** for DB access to prevent SQL injection.
+- **Authentication & session hardening:** secure cookies (`HttpOnly`, `Secure`, `SameSite`), use strong password policy and rate-limiting.
+- **Least privilege:** DB and app accounts should have minimal privileges.
+- **Disable directory listing and reduce error verbosity** (don’t expose stack traces / versions).
+- **Run automated scans in CI/CD** with authenticated scanning (only in controlled, authorized environments).
+- **WAF / Runtime protection** for high-risk endpoints as an additional layer.
 
-Upload a harmless text file and observe server behavior (filename, mime checks).
+---
 
-Header analysis
+# 9) Short theory / explanation (2–3 sentences you can say to teacher)
 
-curl -I http://localhost/mutillidae/ — check server headers (server/version leakage, X-Frame-Options, Content-Security-Policy, Set-Cookie flags).
+- **Crawling** is the process of discovering the web application’s surface (pages, parameters, links) so we can enumerate attack surface. **Scanning** attempts to find security issues in those discovered endpoints (e.g., XSS, SQLi, RCE). Automated scanners (Burp Pro) speed this up, but manual verification (Repeater/Intruder) is essential to confirm true positives. Always scan only authorized targets and document scope. ([PortSwigger][1])
 
-5. Fallback: If Mutillidae doesn't work — DVWA quick usage (no deep install steps required)
+---
 
-If Mutillidae is unreachable, use DVWA (Deliberately Vulnerable Web App) which is commonly present or easy to get on Kali.
+# 10) Appendix — useful commands & tips (copy-paste in terminal)
 
-Quick run (if DVWA already present on system)
-
-Start services: sudo systemctl start apache2 and sudo systemctl start mariadb.
-
-Open http://localhost/dvwa/ in proxied browser.
-
-Login (use default DVWA credentials if preconfigured), set security level to low for exam tasks.
-
-Perform the same crawling and manual tests described above (DVWA has pages for SQLi/XSS/CSRF etc.).
-
-(If DVWA is not installed and you have time, you can install via package or use a prebuilt VM — but that is outside this file; your Mutillidae install doc already covers installation workflows.)
-
-6. What to capture & sample evidence filenames (put these in evidence/ folder)
-
-evidence/01_mutillidae_home.png — browser showing Mutillidae home (Burp visible).
-
-evidence/02_burp_sitemap.png — Burp Target → Site map after crawl.
-
-evidence/03_burp_http_history.png — Proxy HTTP history showing a sample request.
-
-evidence/04_repeater_test.png — Repeater request + response after test payload.
-
-evidence/05_scan_result.png — Burp scan finding (Pro) or manual finding screenshot.
-
-evidence/06_nmap.txt — (Optional) quick nmap output: nmap -sV -T4 127.0.0.1 > evidence/06_nmap.txt
-
-commands.txt — list of terminal commands you ran (start services, curl, nmap).
-
-finding_summary.md — one-page summary (see template below).
-
-How to take screenshots: Use gnome-screenshot -a -f ~/Desktop/filename.png or press PrintScreen and crop. Save with descriptive filenames.
-
-7. Mitigations / Remediation (short, exam-ready points)
-
-When writing recommendations or speaking to the teacher, use this concise list:
-
-Input validation & output encoding — sanitize inputs and encode outputs to prevent XSS/SQLi.
-
-Use parameterized queries / prepared statements — prevents SQL injection.
-
-Harden cookies — HttpOnly, Secure, SameSite flags for session cookies.
-
-Least privilege — application DB user should have minimal permissions.
-
-Disable verbose error messages — avoid exposing stack traces or server versions.
-
-Content Security Policy (CSP) — helps mitigate XSS.
-
-WAF / Runtime protection — add a WAF for additional filtering on public apps.
-
-Patch & update server components — ensure server, PHP, frameworks are up to date.
-
-Include one specific remediation per finding in your report (e.g., “Use bind_param() for PHP mysqli prepared statements to fix SQLi on /product?id=”).
-
-8. Short explanation (2–3 lines to tell the teacher)
-
-Crawling discovers an application's pages, parameters and inputs (attack surface). Scanning tests those endpoints for weaknesses (XSS, SQLi, file inclusion). Automated scanners speed up detection but always verify results manually (Repeater/Intruder) to avoid false positives. All tests performed on authorized lab target.
-
-9. Useful commands & quick tips (copy-paste)
-
-# start services
-
+```bash
+# Start web services
 sudo systemctl start apache2
 sudo systemctl start mariadb
 
-# quick site check
+# Clone Mutillidae into webroot
+cd /var/www/html
+sudo git clone https://github.com/webpwnized/mutillidae.git
+sudo chown -R www-data:www-data mutillidae
+sudo chmod -R 755 mutillidae
 
-curl -I http://localhost/mutillidae/
+# Quick nmap (service detection)
+nmap -sV -T4 -oN nmap_site.txt 127.0.0.1
 
-# quick nmap (optional)
+# Save Burp HTTP request (in Proxy -> HTTP history -> right click -> Save selected items)
+# (No terminal command — do it in Burp UI)
 
-nmap -sV -T4 -oN evidence/06_nmap.txt 127.0.0.1
+# DVWA quick install on Kali (fallback)
+sudo apt update
+sudo apt install dvwa
+dvwa-start   # if packaging provides it, otherwise go to /var/www/html/dvwa/setup.php
 
-# take screenshot (select area)
+# Screenshot example (Kali)
+gnome-screenshot -a -f ~/Desktop/burp_sitemap.png
+```
 
-gnome-screenshot -a -f ~/Desktop/evidence/burp_sitemap.png
+---
 
-Tips
+# Quick print-ready checklist (put this on top of your lab sheet)
 
-Always add the host to Burp scope to avoid capturing system noise.
+- Target: `http://localhost/mutillidae/` (or `http://localhost/dvwa/` fallback).
+- Tools: Kali, Burp Suite (Community/Pro), Apache, MySQL.
+- Steps performed: installed/started app → configured proxy → crawled site → captured HTTP history → ran automated scan (Pro) OR performed manual Repeater checks (Community) → saved screenshots & Burp project.
+- Evidence: `burp_sitemap.png`, `burp_http_history.png`, `burp_repeater_example.png`, `nmap_output.txt`.
 
-If Burp shows a lot of unrelated domains, filter by host in Site map.
+---
 
-Community edition → be methodical: browse every menu item and save the Site map screenshot; manual verification is exam-friendly.
+# Citations & references
 
-Keep payloads small and stop brute force attempts quickly; document that you limited the attack for ethics.
+- OWASP Mutillidae II project page (Mutillidae description). ([OWASP Foundation][2])
+- Mutillidae GitHub (installation instructions / repo). ([GitHub][3])
+- Burp Suite official docs — running your first scan (Burp Scanner available in Pro). ([PortSwigger][1])
+- Burp Free vs Pro differences summary (scanner not in Community). ([E-SPIN Group][8])
+- DVWA Kali Tools page — DVWA available via `apt` in Kali. ([Kali Linux][7])
+
+---

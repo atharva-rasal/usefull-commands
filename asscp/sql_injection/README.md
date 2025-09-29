@@ -107,6 +107,8 @@ async function run(userId) {
 if (require.main === module) {
   run(process.argv[2] || '1').catch(err => { console.error(err.message); process.exit(1); });
 }
+```
+
 Server / Config Tips
 Limit DB user privileges (no DROP/ALTER).
 
@@ -120,4 +122,7 @@ Quick test (for demo)
 Show vulnerable code (string concat) returning all rows for payload: 1' OR '1'='1 --.
 
 Replace with the prepared-statement version above. Run same payload — it should not return extra rows (or should error/validate out).
+
+```
+
 ```
